@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from functools import partial
-from __future__ import division
 from utils import (
     generate_normal_time_series,
     constant_hazard,
@@ -18,6 +17,8 @@ fig, ax = plt.subplots(figsize=[16, 12])
 ax.plot(data)
 # %%
 # ---prior of r---
+# constant_hazard の第1引数を 250 に固定して新しい関数を作成する。
+# これにより、hazard_function(R) を呼び出すと、内部的には constant_hazard(250, R) が実行される。
 hazard_function = partial(constant_hazard, 250)
 
 # %%
@@ -43,5 +44,8 @@ ax[1].pcolor(
     vmax=density_matrix.max(),
     shading="auto",
 )
-Nw = 10
+# 各t時点での、run lengthが1以上となる確率
+Nw = 1
 ax[2].plot(R[Nw, Nw:-1])
+
+# %%
