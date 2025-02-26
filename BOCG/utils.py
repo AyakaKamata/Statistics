@@ -3,8 +3,7 @@ import numpy as np
 from numpy.linalg import inv
 import scipy.stats as ss
 from itertools import islice
-from __future__ import division
-from typing import Tuple
+from typing import Tuple, Optional, List
 from abc import ABC, abstractmethod
 
 # ---generate data---
@@ -29,26 +28,21 @@ def generate_normal_time_series(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     複数の正規分布から生成したデータを結合して1つの時系列データを作成します。
-
     Args:
         num (int): 生成するセグメント（部分時系列）の数。
         minl (int): 各セグメントの最小長。
         maxl (int): 各セグメントの最大長。
         seed (int): 乱数のシード（再現性確保のため）。
-
     Returns:
         Tuple[np.ndarray, np.ndarray]:
             - partition: 各セグメントのサンプル数が格納されたNumPy配列。
             - data: 結合された時系列データを2次元（列ベクトル）に整形したNumPy配列。
     """
-    # 乱数のシードを設定
     np.random.seed(seed)
-    # 結合するデータを格納するための空の配列（浮動小数点型）を初期化
     data: np.ndarray = np.array([], dtype=np.float64)
     # セグメントごとのサンプル数をランダムに生成（minl以上maxl未満の整数）
     partition: np.ndarray = np.random.randint(minl, maxl, num)
 
-    # 各セグメントに対してデータを生成
     for p in partition:
         # セグメントごとの平均値（正規分布に従い、10倍してスケール）
         mean: float = np.random.randn() * 10
@@ -70,20 +64,17 @@ def generate_multinormal_time_series(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     複数の多変量正規分布からデータを生成し、1つのデータセットとして結合します。
-
     Args:
         num (int): 生成するセグメント（部分時系列）の数。
         dim (int): 各多変量正規分布の次元数。
         minl (int): 各セグメントの最小サンプル数。
         maxl (int): 各セグメントの最大サンプル数。
         seed (int): 乱数のシード（再現性確保のため）。
-
     Returns:
         Tuple[np.ndarray, np.ndarray]:
             - partition: 各セグメントのサンプル数が格納されたNumPy配列。
             - data: 各行が多変量正規分布のサンプルとなるデータ配列。
     """
-    # 乱数のシードを設定
     np.random.seed(seed)
     # 後で連結するため、初期のダミー行を持つ空の2次元配列を用意（後で削除）
     data: np.ndarray = np.empty((1, dim), dtype=np.float64)
@@ -107,54 +98,47 @@ def generate_multinormal_time_series(
 
 
 def generate_copula(
-    minl: int = 50, maxl: int = 1000, seed: int = 100
+    dim: int = 2,
+    sigmas: Optional[List[np.ndarray]] = None,
+    minl: int = 50,
+    maxl: int = 1000,
+    seed: int = 100,
+    mu: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    3種類の異なる相関構造を持つ2次元（bivariate）の正規分布からデータを生成し、
-    それらを結合してモチベーション例を作成します。
-
-    - 最初の分布: 正の相関を持つ (0.75)
-    - 2番目の分布: 相関なし
-    - 3番目の分布: 負の相関を持つ (-0.75)
-
+    任意の次元（dim）と各分布の共分散行列（sigmas）を指定して、
+    複数の多変量正規分布からサンプルを生成し、結合します。
     Args:
+        dim (int): 次元数。muがNoneの場合は、ゼロベクトルが平均として用いられます。
+        sigmas (Optional[List[np.ndarray]]): 各分布の共分散行列のリスト。
         minl (int): 各分布から生成するサンプル数の最小値。
         maxl (int): 各分布から生成するサンプル数の最大値。
-        seed (int): 乱数のシード（再現性確保のため）。
-
+        seed (int): 乱数シード（再現性のため）。
+        mu (Optional[np.ndarray]): 平均ベクトル。Noneの場合、ゼロベクトル (長さdim) が用いられる。
     Returns:
         Tuple[np.ndarray, np.ndarray]:
-            - partition: 各分布から生成したサンプル数が格納されたNumPy配列（長さ3）。
-            - data: 結合された全サンプルのデータ配列（各行が1サンプル）。
+            - partition: 各分布から生成したサンプル数を格納した配列（長さは分布数）。
+            - data: 結合された全サンプルのデータ（各行が1サンプル）。
     """
-    # 乱数のシードを設定
     np.random.seed(seed)
-    dim: int = 2  # bivariate（2次元）のための次元数
-    num: int = 3  # 3種類の分布を生成
 
-    # 各分布のサンプル数をランダムに決定
+    # 平均ベクトルの設定（指定がなければゼロベクトル）
+    if mu is None:
+        mu = np.zeros(dim)
+
+    # 共分散行列の既定値設定（dim==2の場合のみ）
+    if sigmas is None:
+        raise ValueError("sigmas is None")
+
+    num = len(sigmas)  # 分布の数
     partition: np.ndarray = np.random.randint(minl, maxl, num)
 
-    # すべての分布で共通する平均ベクトル（ゼロベクトル）
-    mu: np.ndarray = np.zeros(dim)
+    data_list = []
+    for i in range(num):
+        samples = np.random.multivariate_normal(mu, sigmas[i], partition[i])
+        data_list.append(samples)
 
-    # 1つ目の分布: 正の相関を持つ共分散行列
-    Sigma1: np.ndarray = np.array([[1.0, 0.75], [0.75, 1.0]])
-    data: np.ndarray = np.random.multivariate_normal(mu, Sigma1, partition[0])
-
-    # 2つ目の分布: 相関なしの共分散行列
-    Sigma2: np.ndarray = np.array([[1.0, 0.0], [0.0, 1.0]])
-    data = np.concatenate(
-        (data, np.random.multivariate_normal(mu, Sigma2, partition[1]))
-    )
-
-    # 3つ目の分布: 負の相関を持つ共分散行列
-    Sigma3: np.ndarray = np.array([[1.0, -0.75], [-0.75, 1.0]])
-    data = np.concatenate(
-        (data, np.random.multivariate_normal(mu, Sigma3, partition[2]))
-    )
-
-    # 各分布から生成されたサンプル数と結合したデータを返す
+    data: np.ndarray = np.concatenate(data_list, axis=0)
     return partition, data
 
 
@@ -162,10 +146,12 @@ def generate_copula(
 # ---hazard function---
 def constant_hazard(lam, r):
     """
-    Hazard function for bayesian online learning
-    Arguments:
-        lam - inital prob
-        r - R matrix
+    ベイズオンライン学習における一定ハザード関数。
+    引数:
+        lam: 成功するまでに必要な試行回数の期待値
+        r: R行列
+    戻り値:
+        rと同じ形状で、全ての要素が1/lamの配列
     """
     return 1 / lam * np.ones(r.shape)
 
@@ -173,8 +159,10 @@ def constant_hazard(lam, r):
 # %%
 # ---online likelihoods---
 ##base
-##MultivariateT
-##StudentT
+##MultivariateT(Marginal Distribution of x)
+##StudentT(Marginal Distribution of x)
+
+
 class BaseLikelihood(ABC):
     """
     This is an abstract class to serve as a template for future users to mimick
@@ -211,10 +199,9 @@ class MultivariateT(BaseLikelihood):
         scale: float = -1,
     ):
         """
-        Create a new predictor using the multivariate student T distribution as the posterior predictive.
-            This implies a multivariate Gaussian distribution on the data, a Wishart prior on the precision,
-             and a Gaussian prior on the mean.
-             Implementation based on Haines, T.S., Gaussian Conjugate Prior Cheat Sheet.
+        x|mu,Sigma^-1~N_dims(mu,Sigma^-1)
+        mu|Sigma^-1~N(mu_0,(kappa_0*Sigma^-1)^-1)
+        Sigma^-1~Wishart
         :param dof: The degrees of freedom on the prior distribution of the precision (inverse covariance)
         :param kappa: The number of observations we've already seen
         :param mu: The mean of the prior distribution on the mean
@@ -250,19 +237,29 @@ class MultivariateT(BaseLikelihood):
 
     def pdf(self, data: np.array):
         """
-        Returns the probability of the observed data under the current and historical parameters
-        Parmeters:
-            data - the datapoints to be evaualted (shape: 1 x D vector)
+        観測データ data に対する、現在および過去のパラメータ下での確率密度関数 (PDF) の値を返す関数
+        引数:
+            data: 評価対象のデータポイント (shape: 1 x D のベクトル)
         """
+        # 時刻 t を1増やす
         self.t += 1
+
+        # 有効な自由度の計算
         t_dof = self.dof - self.dims + 1
+
+        # スケールパラメータの補正係数を計算
+        # (self.kappa * t_dof) / (self.kappa + 1) を計算し、軸1と2(0-index)を新たに追加して次元を合わせる
         expanded = np.expand_dims((self.kappa * t_dof) / (self.kappa + 1), (1, 2))
+
         ret = np.empty(self.t)
+
         try:
-            # This can't be vectorised due to https://github.com/scipy/scipy/issues/13450
+            # scipy の multivariate_t.pdf はベクトル化できないため、各時刻のパラメータに対して個別に計算する
+            # islice を使って self.t 個分のパラメータ (自由度, 平均, スケール行列の逆行列) を反復処理
             for i, (df, loc, shape) in islice(
                 enumerate(zip(t_dof, self.mu, inv(expanded * self.scale))), self.t
             ):
+                # multivariate_t.pdf を用いて、data の確率密度を計算し ret 配列に格納
                 ret[i] = ss.multivariate_t.pdf(x=data, df=df, loc=loc, shape=shape)
         except AttributeError:
             raise Exception(
@@ -270,36 +267,55 @@ class MultivariateT(BaseLikelihood):
             )
         return ret
 
-    def update_theta(self, data: np.array, **kwargs):
-        """
-        Performs a bayesian update on the prior parameters, given data
-        Parmeters:
-            data - the datapoints to be evaluated (shape: 1 x D vector)
-        """
-        centered = data - self.mu
 
-        # We simultaneously update each parameter in the vector, because following figure 1c of the BOCD paper, each
-        # parameter for a given t, r is derived from the same parameter for t-1, r-1
-        # Then, we add the prior back in as the first element
-        self.scale = np.concatenate(
-            [
-                self.scale[:1],
-                inv(
-                    inv(self.scale)
-                    + np.expand_dims(self.kappa / (self.kappa + 1), (1, 2))
-                    * (np.expand_dims(centered, 2) @ np.expand_dims(centered, 1))
-                ),
-            ]
-        )
-        self.mu = np.concatenate(
-            [
-                self.mu[:1],
-                (np.expand_dims(self.kappa, 1) * self.mu + data)
-                / np.expand_dims(self.kappa + 1, 1),
-            ]
-        )
-        self.dof = np.concatenate([self.dof[:1], self.dof + 1])
-        self.kappa = np.concatenate([self.kappa[:1], self.kappa + 1])
+def update_theta(self, data: np.array, **kwargs):
+    """
+    観測データ data に基づいて、事前パラメータ (theta) のベイズ更新を行う関数
+    引数:
+        data: 評価対象のデータポイント (shape: 1 x D のベクトル)
+    """
+    # 観測データと現在の平均 (self.mu) との差（中心化された値）を計算
+    centered = data - self.mu
+
+    # 各更新時刻において、前時刻のパラメータから派生して更新を行い、
+    # 最初の（事前）パラメータはそのまま保持するために先頭の要素を残して連結する
+
+    # self.scale (共分散行列) の更新:
+    # 1. 先頭の要素（事前のスケール）はそのまま保持する
+    # 2. 以降の要素は、元のスケール行列の逆行列に、データの中心化項の外積に係数 (kappa/(kappa+1)) を掛けたものを加えた後、
+    #    その逆行列を取ることで更新する
+    self.scale = np.concatenate(
+        [
+            self.scale[:1],
+            inv(
+                inv(self.scale)
+                + np.expand_dims(self.kappa / (self.kappa + 1), (1, 2))
+                * (np.expand_dims(centered, 2) @ np.expand_dims(centered, 1))
+            ),
+        ]
+    )
+
+    # self.mu (平均ベクトル) の更新:
+    # 1. 先頭の要素（事前の平均）はそのまま保持する
+    # 2. 以降の要素は、重み付き平均として、古い平均に kappa を掛けたものと新たなデータを足し合わせ、
+    #    (kappa+1) で割ることで更新する
+    self.mu = np.concatenate(
+        [
+            self.mu[:1],
+            (np.expand_dims(self.kappa, 1) * self.mu + data)
+            / np.expand_dims(self.kappa + 1, 1),
+        ]
+    )
+
+    # 自由度 (self.dof) の更新:
+    # 1. 先頭の要素はそのまま保持する
+    # 2. 以降は全て 1 を加算する
+    self.dof = np.concatenate([self.dof[:1], self.dof + 1])
+
+    # kappa の更新:
+    # 1. 先頭の要素はそのまま保持する
+    # 2. 以降は全て 1 を加算する
+    self.kappa = np.concatenate([self.kappa[:1], self.kappa + 1])
 
 
 class StudentT(BaseLikelihood):
@@ -307,9 +323,9 @@ class StudentT(BaseLikelihood):
         self, alpha: float = 0.1, beta: float = 0.1, kappa: float = 1, mu: float = 0
     ):
         """
-        StudentT distribution except normal distribution is replaced with the student T distribution
-        https://en.wikipedia.org/wiki/Normal-gamma_distribution
-
+        x|sigma^2~N(mu,sigma^2)
+        mu|sigma^2~N(mu_0,sigma^2/kappa_0)
+        sigma^-2~Gamma
         Parameters:
             alpha - alpha in gamma distribution prior
             beta - beta inn gamma distribution prior
@@ -363,14 +379,12 @@ class StudentT(BaseLikelihood):
 
 # %%
 # ---online model---
+# Adams and MacKay 2007
 def online_changepoint_detection(data, hazard_function, log_likelihood_class):
     """
     Use online bayesian changepoint detection
-    https://scientya.com/bayesian-online-change-point-detection-an-intuitive-understanding-b2d2b9dc165b
-
     Parameters:
     data    -- the time series data
-
     Outputs:
         R  -- is the probability at time step t that the last sequence is already s time steps long
         maxes -- the argmax on column axis of matrix R (growth probability value) for each time step
@@ -379,28 +393,36 @@ def online_changepoint_detection(data, hazard_function, log_likelihood_class):
 
     R = np.zeros((len(data) + 1, len(data) + 1))
     R[0, 0] = 1
-
+    # enumerateでt=0~(T-1)なので、表記上は１を足している
     for t, x in enumerate(data):
+        # 3.Evaluage Predictive Probability
         # Evaluate the predictive distribution for the new datum under each of
-        # the parameters.  This is the standard thing from Bayesian inference.
+        # the parameters.
         predprobs = log_likelihood_class.pdf(x)
 
-        # Evaluate the hazard function for this interval
+        # (prepare for 4 and 5)Evaluate the hazard function for this interval
         H = hazard_function(np.array(range(t + 1)))
 
+        # 4.Calculate Growth Probabilities
         # Evaluate the growth probabilities - shift the probabilities down and to
         # the right, scaled by the hazard function and the predictive
         # probabilities.
+        # R[0 : t + 1, t]=Message
+        # dim: ((t+1)*1)*(1)*(1*(t+1))=(t+1)*(t+1)
         R[1 : t + 2, t + 1] = R[0 : t + 1, t] * predprobs * (1 - H)
 
+        # 5.Calculate Changepoint Probabilities
         # Evaluate the probability that there *was* a changepoint and we're
         # accumulating the mass back down at r = 0.
+        # dim: ((t+1)*1)*(1)*(1*(t+1))=(t+1)*(t+1)の全要素の合計
         R[0, t + 1] = np.sum(R[0 : t + 1, t] * predprobs * H)
 
-        # Renormalize the run length probabilities for improved numerical
-        # stability.
+        # 6,7.Calculate Evidence & Determine Run Length Distribution
+        # r_{t}の全部の場合のrun length probを求める
         R[:, t + 1] = R[:, t + 1] / np.sum(R[:, t + 1])
-
+        if R.shape[1] >= 1 and R[1, t + 1] >= 0.95:
+            print(f"changepoint detected at time step {t+1}")
+        # 8,9.Update Sufficient Statistics & Perform Prediction
         # Update the parameter sets for each possible run length.
         log_likelihood_class.update_theta(x, t=t)
 
