@@ -5,6 +5,7 @@ import scipy.stats as ss
 from itertools import islice
 from typing import Tuple, Optional, List
 from abc import ABC, abstractmethod
+import time
 
 # ---generate data---
 ##normal
@@ -199,14 +200,14 @@ class MultivariateT(BaseLikelihood):
         scale: float = -1,
     ):
         """
-        x|mu,Sigma^-1~N_dims(mu,Sigma^-1)
-        mu|Sigma^-1~N(mu_0,(kappa_0*Sigma^-1)^-1)
-        Sigma^-1~Wishart
-        :param dof: The degrees of freedom on the prior distribution of the precision (inverse covariance)
+        x|mu,Sigma^-1-N_dims(mu,Sigma^-1)
+        mu|Sigma^-1-N(mu_0,(kappa_0*Sigma^-1)^-1)
+        Sigma^-1-Wishart(scale,dof)
+        :param dims: The number of variables
+        :param dof=n_0(あくまでハイパラ): The degrees of freedom on the prior distribution of the precision (inverse covariance)
         :param kappa: The number of observations we've already seen
         :param mu: The mean of the prior distribution on the mean
         :param scale: The mean of the prior distribution on the precision
-        :param dims: The number of variables
         """
         # We default to the minimum possible degrees of freedom, which is 1 greater than the dimensionality
         if dof == 0:
@@ -267,55 +268,51 @@ class MultivariateT(BaseLikelihood):
             )
         return ret
 
+    def update_theta(self, data: np.array, **kwargs):
+        """
+        観測データ data に基づいて、事前パラメータ (theta) のベイズ更新を行う関数
+        引数:
+            data: 評価対象のデータポイント (shape: 1 x D のベクトル)
+        Returns:
+            dict: 更新後のパラメータ { 'scale': 最新のscale, 'mu': 最新のmu, 'dof': 最新のdof, 'kappa': 最新のkappa }
+        """
+        # 観測データと現在の平均 (self.mu) との差（中心化された値）を計算
+        centered = data - self.mu
 
-def update_theta(self, data: np.array, **kwargs):
-    """
-    観測データ data に基づいて、事前パラメータ (theta) のベイズ更新を行う関数
-    引数:
-        data: 評価対象のデータポイント (shape: 1 x D のベクトル)
-    """
-    # 観測データと現在の平均 (self.mu) との差（中心化された値）を計算
-    centered = data - self.mu
+        # self.scale (共分散行列) の更新:
+        self.scale = np.concatenate(
+            [
+                self.scale[:1],
+                inv(
+                    inv(self.scale)
+                    + np.expand_dims(self.kappa / (self.kappa + 1), (1, 2))
+                    * (np.expand_dims(centered, 2) @ np.expand_dims(centered, 1))
+                ),
+            ]
+        )
 
-    # 各更新時刻において、前時刻のパラメータから派生して更新を行い、
-    # 最初の（事前）パラメータはそのまま保持するために先頭の要素を残して連結する
+        # self.mu (平均ベクトル) の更新:
+        self.mu = np.concatenate(
+            [
+                self.mu[:1],
+                (np.expand_dims(self.kappa, 1) * self.mu + data)
+                / np.expand_dims(self.kappa + 1, 1),
+            ]
+        )
 
-    # self.scale (共分散行列) の更新:
-    # 1. 先頭の要素（事前のスケール）はそのまま保持する
-    # 2. 以降の要素は、元のスケール行列の逆行列に、データの中心化項の外積に係数 (kappa/(kappa+1)) を掛けたものを加えた後、
-    #    その逆行列を取ることで更新する
-    self.scale = np.concatenate(
-        [
-            self.scale[:1],
-            inv(
-                inv(self.scale)
-                + np.expand_dims(self.kappa / (self.kappa + 1), (1, 2))
-                * (np.expand_dims(centered, 2) @ np.expand_dims(centered, 1))
-            ),
-        ]
-    )
+        # 自由度 (self.dof) の更新:
+        self.dof = np.concatenate([self.dof[:1], self.dof + 1])
 
-    # self.mu (平均ベクトル) の更新:
-    # 1. 先頭の要素（事前の平均）はそのまま保持する
-    # 2. 以降の要素は、重み付き平均として、古い平均に kappa を掛けたものと新たなデータを足し合わせ、
-    #    (kappa+1) で割ることで更新する
-    self.mu = np.concatenate(
-        [
-            self.mu[:1],
-            (np.expand_dims(self.kappa, 1) * self.mu + data)
-            / np.expand_dims(self.kappa + 1, 1),
-        ]
-    )
+        # kappa の更新:
+        self.kappa = np.concatenate([self.kappa[:1], self.kappa + 1])
 
-    # 自由度 (self.dof) の更新:
-    # 1. 先頭の要素はそのまま保持する
-    # 2. 以降は全て 1 を加算する
-    self.dof = np.concatenate([self.dof[:1], self.dof + 1])
-
-    # kappa の更新:
-    # 1. 先頭の要素はそのまま保持する
-    # 2. 以降は全て 1 を加算する
-    self.kappa = np.concatenate([self.kappa[:1], self.kappa + 1])
+        # 更新後の最新パラメータを返す（各パラメータは最後の要素）
+        return {
+            "scale": self.scale[-1],
+            "mu": self.mu[-1],
+            "dof": self.dof[-1],
+            "kappa": self.kappa[-1],
+        }
 
 
 class StudentT(BaseLikelihood):
@@ -323,9 +320,9 @@ class StudentT(BaseLikelihood):
         self, alpha: float = 0.1, beta: float = 0.1, kappa: float = 1, mu: float = 0
     ):
         """
-        x|sigma^2~N(mu,sigma^2)
-        mu|sigma^2~N(mu_0,sigma^2/kappa_0)
-        sigma^-2~Gamma
+        x|sigma^2-N(mu,sigma^2)
+        mu|sigma^2-N(mu_0,sigma^2/kappa_0)
+        sigma^-2-Gamma
         Parameters:
             alpha - alpha in gamma distribution prior
             beta - beta inn gamma distribution prior
@@ -355,8 +352,10 @@ class StudentT(BaseLikelihood):
     def update_theta(self, data: np.array, **kwargs):
         """
         Performs a bayesian update on the prior parameters, given data
-        Parmeters:
+        Parameters:
             data - the datapoints to be evaluated (shape: 1 x D vector)
+        Returns:
+            dict: 更新後のパラメータ { 'mu': 最新のmu, 'kappa': 最新のkappa, 'alpha': 最新のalpha, 'beta': 最新のbeta }
         """
         muT0 = np.concatenate(
             (self.mu0, (self.kappa * self.mu + data) / (self.kappa + 1))
@@ -376,10 +375,24 @@ class StudentT(BaseLikelihood):
         self.alpha = alphaT0
         self.beta = betaT0
 
+        # 更新後の最新パラメータを返す
+        return {
+            "mu": self.mu[-1],
+            "kappa": self.kappa[-1],
+            "alpha": self.alpha[-1],
+            "beta": self.beta[-1],
+        }
+
 
 # %%
 # ---online model---
 # Adams and MacKay 2007
+# 基本型
+
+
+# 実行したい処理を記述
+
+
 def online_changepoint_detection(data, hazard_function, log_likelihood_class):
     """
     Use online bayesian changepoint detection
@@ -393,7 +406,8 @@ def online_changepoint_detection(data, hazard_function, log_likelihood_class):
 
     R = np.zeros((len(data) + 1, len(data) + 1))
     R[0, 0] = 1
-    # enumerateでt=0~(T-1)なので、表記上は１を足している
+    start = time.time()  # 現在時刻（処理開始前）を取得
+    # enumerateでt=0-(T-1)なので、表記上は１を足している
     for t, x in enumerate(data):
         # 3.Evaluage Predictive Probability
         # Evaluate the predictive distribution for the new datum under each of
@@ -424,8 +438,13 @@ def online_changepoint_detection(data, hazard_function, log_likelihood_class):
             print(f"changepoint detected at time step {t+1}")
         # 8,9.Update Sufficient Statistics & Perform Prediction
         # Update the parameter sets for each possible run length.
-        log_likelihood_class.update_theta(x, t=t)
+        dict = log_likelihood_class.update_theta(x, t=t)
 
         maxes[t] = R[:, t].argmax()
+    end = time.time()  # 現在時刻（処理完了後）を取得
+    time_diff = end - start  # 処理完了後の時刻から処理開始前の時刻を減算する
+    print(time_diff)  # 処理にかかった時間データを使用
+    return R, maxes, dict
 
-    return R, maxes
+
+# %%
