@@ -3,7 +3,7 @@ import numpy as np
 from numpy.linalg import inv
 import scipy.stats as ss
 from itertools import islice
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Union
 from abc import ABC, abstractmethod
 import time
 
@@ -196,8 +196,8 @@ class MultivariateT(BaseLikelihood):
         dims: int = 1,
         dof: int = 0,
         kappa: int = 1,
-        mu: float = -1,
-        scale: float = -1,
+        mu: Optional[Union[np.ndarray, float]] = None,
+        scale: Optional[np.ndarray] = None,
     ):
         """
         x|mu,Sigma^-1-N_dims(mu,Sigma^-1)
@@ -213,16 +213,24 @@ class MultivariateT(BaseLikelihood):
         if dof == 0:
             dof = dims + 1
         # The default mean is all 0s
-        if mu == -1:
-            mu = [0] * dims
+        if mu is None:
+            mu = np.zeros(dims)
+        elif np.isscalar(mu):
+            mu = np.full(dims, mu)
         else:
-            mu = [mu] * dims
+            mu = np.asarray(mu).flatten()
+            if mu.shape[0] != dims:
+                raise ValueError("Length of mu must equal dims")
 
-        # The default covariance is the identity matrix. The scale is the inverse of that, which is also the identity
-        if scale == -1:
+        # The default covariance is the identity matrix.
+        if scale is None:
             scale = np.identity(dims)
         else:
-            scale = np.identity(scale)
+            scale = np.asarray(scale)
+            if scale.shape != (dims, dims):
+                raise ValueError(
+                    "scale must be a square matrix with shape (dims, dims)"
+                )
 
         # Track time
         self.t = 0
@@ -439,7 +447,8 @@ def online_changepoint_detection(data, hazard_function, log_likelihood_class):
         # 8,9.Update Sufficient Statistics & Perform Prediction
         # Update the parameter sets for each possible run length.
         dict = log_likelihood_class.update_theta(x, t=t)
-
+        if t % 10 == 0:
+            print(dict["scale"])
         maxes[t] = R[:, t].argmax()
     end = time.time()  # 現在時刻（処理完了後）を取得
     time_diff = end - start  # 処理完了後の時刻から処理開始前の時刻を減算する
