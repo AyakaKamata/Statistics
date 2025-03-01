@@ -53,53 +53,64 @@ ax[2].plot(R[Nw, Nw:-1])
 # %%
 # ---Copula---
 # ---Sigma---
-dim = 4
-r = 0.8
+dim = 2
+# r = 0.8
 
 # k=1 の SIGMA: 対角成分が 1,1,1,1 の対角行列
-sigma1 = np.diag([1, 1, 1, 1])
+# sigma1 = np.diag([1, 1, 1, 1])
+sigma1 = np.diag([1, 1])
 
 # k=2 の SIGMA: 全要素が 0.5 の行列に対角成分0.5を加えるので、対角は 1, 非対角は 0.5 となる
 sigma2 = np.full((dim, dim), 0.5) + np.diag(np.full(dim, 0.5))
 
-# k=3 の SIGMA: 行ごとに r のべき乗で作成（例: 1行目は [r^0, r^1, r^2, r^3]）
-sigma3 = np.array(
-    [
-        [r**0, r**1, r**2, r**3],
-        [r**1, r**0, r**1, r**2],
-        [r**2, r**1, r**0, r**1],
-        [r**3, r**2, r**1, r**0],
-    ]
-)
+# # k=3 の SIGMA: 行ごとに r のべき乗で作成（例: 1行目は [r^0, r^1, r^2, r^3]）
+# sigma3 = np.array(
+#     [
+#         [r**0, r**1, r**2, r**3],
+#         [r**1, r**0, r**1, r**2],
+#         [r**2, r**1, r**0, r**1],
+#         [r**3, r**2, r**1, r**0],
+#     ]
+# )
 
 # Python の List[ndarray] としてまとめる
-SIGMA = [sigma1, sigma2, sigma3, sigma2]
+# SIGMA = [sigma1, sigma2, sigma3, sigma2]
+SIGMA = [sigma1, sigma2, sigma1]
 
 # ---visualize generated data---
-mu = np.array([12, 9, 7, 5])
-partition, data = generate_copula(dim, SIGMA, 50, 100, 100, mu)
+# mu = np.array([12, 9, 7, 5])
+# partition大きめ
+partition, data = generate_copula(
+    dim=dim,
+    sigmas=SIGMA,
+    minl=100,
+    maxl=200,
+)
 fig, ax = plt.subplots(figsize=[16, 12])
 tmp = 0
 for p in partition:
+    tmp_ = tmp
     tmp += p
-    ax.axvline(x=tmp, color="b", linestyle="--")
+    ax.axvline(x=tmp - 1, color="b", linestyle="--")
     print(tmp)
+    print(np.cov(data[tmp_:tmp], rowvar=False))
 ax.plot(data)
 plt.show()
 print(SIGMA)
 # %%
 # ---prior of r---
-# constant_hazard の第1引数を 250 に固定して新しい関数を作成する。
+# constant_hazard の第1引数を固定して新しい関数を作成する。
 # これにより、hazard_function(R) を呼び出すと、内部的には constant_hazard(250, R) が実行される。
 hazard_function = partial(constant_hazard, 100)
 
 # %%
 # ---calculate growth probability value, max---
 # t=300で5秒ぐらい
+# dof=kappaぐらいにする、学習のため大きめで
 R, maxes, dict = online_changepoint_detection(
     data,
     hazard_function,
-    MultivariateT(dims=dim, mu=8),
+    MultivariateT(dims=dim, dof=10, kappa=10),
 )
 # %%
 # ---visualize data,growth probability value,max---
@@ -108,7 +119,7 @@ fig, ax = plt.subplots(3, figsize=[18, 16], sharex=True)
 tmp = 0
 for p in partition:
     tmp += p
-    ax[0].axvline(x=tmp, color="b", linestyle="--")
+    ax[0].axvline(x=tmp - 1, color="b", linestyle="--")
 ax[0].plot(data)
 sparsity = 5  # only plot every fifth data for faster display
 density_matrix = -np.log(R[0:-1:sparsity, 0:-1:sparsity] + epsilon)

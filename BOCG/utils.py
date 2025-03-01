@@ -100,11 +100,11 @@ def generate_multinormal_time_series(
 
 def generate_copula(
     dim: int = 2,
+    mu: Optional[np.ndarray] = None,
     sigmas: Optional[List[np.ndarray]] = None,
     minl: int = 50,
     maxl: int = 1000,
     seed: int = 100,
-    mu: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     任意の次元（dim）と各分布の共分散行列（sigmas）を指定して、
@@ -286,7 +286,10 @@ class MultivariateT(BaseLikelihood):
         """
         # 観測データと現在の平均 (self.mu) との差（中心化された値）を計算
         centered = data - self.mu
-
+        # print("centered", centered)
+        # print("kappa/kappa+1", np.expand_dims(self.kappa / (self.kappa + 1), (1, 2)))
+        # print("centered^2", np.expand_dims(centered, 2) @ np.expand_dims(centered, 1))
+        # print("end")
         # self.scale (共分散行列) の更新:
         self.scale = np.concatenate(
             [
@@ -328,7 +331,7 @@ class StudentT(BaseLikelihood):
         self, alpha: float = 0.1, beta: float = 0.1, kappa: float = 1, mu: float = 0
     ):
         """
-        x|sigma^2-N(mu,sigma^2)
+        x|mu,sigma^2-N(mu,sigma^2)
         mu|sigma^2-N(mu_0,sigma^2/kappa_0)
         sigma^-2-Gamma
         Parameters:
