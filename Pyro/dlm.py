@@ -160,6 +160,9 @@ forecaster = Forecaster(
 end = time.time()  # 現在時刻（処理完了後）を取得
 time_diff = end - start  # 処理完了後の時刻から処理開始前の時刻を減算する
 print("time(mins):", time_diff)  # 処理にかかった時間データを使用
+for name, value in forecaster.guide.median().items():
+    if value.numel() == 1:
+        print("{} = {:0.4g}".format(name, value.item()))
 
 # %%
 # ---sample from posterior---
@@ -250,6 +253,12 @@ print(time_points.shape, priors.shape)
 # %%
 # ---define Model using Prior
 class DLM2(ForecastingModel):
+    def __init__(self, time_points, priors, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 渡された追加パラメータをインスタンス属性として保持
+        self.time_points = time_points
+        self.priors = priors
+
     def model(self, zero_data, covariates):
         data_dim = zero_data.size(-1)
         feature_dim = covariates.size(-1)
@@ -304,7 +313,7 @@ class DLM2(ForecastingModel):
 
 
 pyro.render_model(
-    DLM2(),
+    DLM2(time_points, priors),
     model_args=(y[:T1], covariates[:T1]),
     render_params=True,
     render_deterministic=True,
@@ -330,6 +339,9 @@ forecaster2 = Forecaster(
 end = time.time()  # 現在時刻（処理完了後）を取得
 time_diff = end - start  # 処理完了後の時刻から処理開始前の時刻を減算する
 print("time(mins):", time_diff)  # 処理にかかった時間データを使用
+for name, value in forecaster.guide.median().items():
+    if value.numel() == 1:
+        print("{} = {:0.4g}".format(name, value.item()))
 # %%
 # ---Plot the training losses---
 plt.figure(figsize=(10, 5))
@@ -337,9 +349,6 @@ plt.plot(forecaster2.losses[300:], label="Training Loss")
 plt.xlabel("SVI step after 300 iter")
 plt.ylabel("ELBO loss")
 plt.show()
-# ---print best param---
-for name, value in pyro.get_param_store().items():
-    print(name, pyro.param(name).data.cpu().numpy())
 # %%
 # ---sample from posterior---
 # record all latent variables in a trace
@@ -406,4 +415,3 @@ plt.plot(np.arange(T1 - 200, T2), y[T1 - 200 : T2], "k-", label="truth", alpha=0
 plt.title("Response against time (CRPS = {:0.3g})".format(crps))
 plt.axvline(T1, color="b", linestyle="--")
 plt.legend(loc="best")
-# %%
