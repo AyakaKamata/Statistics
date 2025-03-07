@@ -26,7 +26,7 @@ logging.basicConfig(format="%(message)s", level=logging.INFO)
 plt.style.use("default")
 # %%
 # ---example data---
-data = pd.read_csv("Pyro/rugged_data.csv", encoding="ISO-8859-1")
+data = pd.read_csv("rugged_data.csv", encoding="ISO-8859-1")
 df = data[["cont_africa", "rugged", "rgdppc_2000"]]
 # %%
 # ---visualize rgdppc_2000---
