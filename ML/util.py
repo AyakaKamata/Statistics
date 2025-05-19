@@ -3,6 +3,8 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import util
+from sklearn import datasets
+from sklearn.model_selection import train_test_split
 
 
 class Perceptron_Classifier:
@@ -354,3 +356,17 @@ def standardize(arr):
     standardized = (arr - mean) / std
 
     return standardized
+
+
+def Iris():
+    """get iris data and return X and y"""
+    iris = datasets.load_iris()
+    return iris.data, iris.target
+
+
+def split(X, y, test_size=0.3, seed=1, stratify=None):
+    """return X_train, X_test, y_train, y_test"""
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=seed, stratify=stratify
+    )
+    return X_train, X_test, y_train, y_test
